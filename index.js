@@ -26,8 +26,8 @@ function BigAssFansPlatform(log, config, api) {
   this.config = config;
   this.accessories = [];
   this.accessoriesHashed = {};
-  this.numberOfFans = config ? (config.fan_count || 1) : 1;
-  this.fanMaster = new bigAssApi.FanMaster(this.numberOfFans); 
+  this.numberOfDevices = config ? (config.device_count || config.fan_count || 1) : 1;
+  this.fanMaster = new bigAssApi.FanMaster(this.numberOfDevices); 
   
   this.fanMaster.onFanFullyUpdated = function(myBigAss){
     platform.addAccessory(myBigAss);
@@ -62,38 +62,38 @@ BigAssFansPlatform.prototype.configureAccessory = function(accessory) {
 }
 
 // Sample function to show how developer can add accessory dynamically from outside event
-BigAssFansPlatform.prototype.addAccessory = function(theFan) {
+BigAssFansPlatform.prototype.addAccessory = function(bigAssDevice) {
   var platform = this;
   var newAccessory;
   var uuid;
   
   var doctoredConfig = {
-    "name"               : theFan.name,
-    "fan_name"           : theFan.name,
-    "fan_id"             : theFan.id,
-    "fan_ip_address"     : theFan.address,
-    "light_exists"       : theFan.light.exists,
+    "name"               : bigAssDevice.name,
+    "device_name"        : bigAssDevice.name,
+    "device_id"          : bigAssDevice.id,
+    "device_ip_address"  : bigAssDevice.address,
+    "light_exists"       : bigAssDevice.light.exists,
     "light_on"           : platform.config.light_on,
     "fan_on"             : platform.config.fan_on,
     "homekit_fan_name"   : platform.config.homekit_fan_name,
     "homekit_light_name" : platform.config.homekit_light_name,
-    "fan_master"         : theFan.master,
+    "fan_master"         : bigAssDevice.master,
   }
 
   //Check if we have a cached accessory and link it to runtime fan instance, or create new service
-  uuid = UUIDGen.generate(theFan.name);
+  uuid = UUIDGen.generate(bigAssDevice.name);
   
   if (platform.accessoriesHashed[uuid]) {
     newAccessory = platform.accessoriesHashed[uuid];
   } else {
-    newAccessory = new PlatformAccessory(theFan.name, uuid);
+    newAccessory = new PlatformAccessory(bigAssDevice.name, uuid);
   }
   
   var newInnerFanAccessory = new BigAssFanAccessory(platform.log, doctoredConfig, newAccessory);
 
   // Adds "identify" functionality
   newAccessory.on('identify', function(paired, callback) {
-    platform.log(newAccessory.displayName, "Identified fan (homekit setup)");
+    platform.log(newAccessory.displayName, "Identified Big Ass Device (homekit setup)");
     callback();
   });
   
@@ -120,38 +120,38 @@ BigAssFansPlatform.prototype.removeAccessory = function() {
 function BigAssFanAccessory(log, config, existingAccessory) {
   this.log              = log;
   this.name             = config["name"];
-  this.fanName          = config["fan_name"];        // TODO: Allow this to be null
-  this.fanID            = config["fan_id"];
-  this.fanIPAddress     = config["fan_ip_address"];  // Can be null - resorts to broadcasting
-  this.lightExists      = config["light_exists"]     // Can be null - default is below
-  this.lightOn          = config["light_on"];        // Can be null - default is below
-  this.fanOn            = config["fan_on"];          // Can be null - default is below
+  this.deviceName       = config["device_name"];        // TODO: Allow this to be null
+  this.deviceID         = config["device_id"];
+  this.deviceIPAddress  = config["device_ip_address"]; // Can be null - resorts to broadcasting
+  this.lightExists      = config["light_exists"]       // Can be null - default is below
+  this.lightOn          = config["light_on"];          // Can be null - default is below
+  this.fanOn            = config["fan_on"];            // Can be null - default is below
   this.homekitFanName   = config["homekit_fan_name"]
   this.homekitLightName = config["homekit_light_name"]
-  this.fanMaster        = config["fan_master"]       // Can NOT be entered by user
+  this.fanMaster        = config["fan_master"]         // Can NOT be entered by user
 
   // Set defaults
   var setDefault = function(property, value) {
     if (!this[property]) {this[property] = value}
   }.bind(this);
 
-  setDefault("fanIPAddress", "255.255.255.255");
+  setDefault("deviceIPAddress", "255.255.255.255");
   setDefault("lightOn", 16);
   setDefault("fanOn", 3);
   setDefault("lightExists", false);
 
   setDefault("name", this.fanName);
   setDefault("homekitFanName", this.name + " Fan");
-  setDefault("homekitLightName", this.name + " Fan Light");
+  setDefault("homekitLightName", this.name + " Light");
   setDefault("homekitOccupancyName", this.name + " Occupancy Sensor");
   // Don't scan for any fans since we know the exact address of the fan (faster!)
-  // TODO: Make fan_id optional and do the scan for the user
+  // TODO: Make device_id optional and do the scan for the user
   if (!this.fanMaster) {
-    this.fanMaster = new bigAssApi.FanMaster(this.numberOfFans); 
+    this.fanMaster = new bigAssApi.FanMaster(this.numberOfDevices); 
   }
 
   // Put in exact information for the fan you're trying to reach
-  this.myBigAss = new bigAssApi.BigAssFan(this.fanName, this.fanID, this.fanIPAddress, this.fanMaster);
+  this.myBigAss = new bigAssApi.BigAssFan(this.deviceName, this.deviceID, this.deviceIPAddress, this.fanMaster);
 
   // this.myBigAss.updateAll();
 
@@ -251,7 +251,8 @@ function BigAssFanAccessory(log, config, existingAccessory) {
   var lightMaxBrightness = this.myBigAss.light.max ? this.myBigAss.light.max : 16;
   var fanMaxSpeed        = this.myBigAss.fan.max ? this.myBigAss.fan.max : 7;
   
-  if (this.lightExists) {
+  // Lights can be optionally on a fan, or standalone
+  if (this.lightExists || this.type == 'light'}) {
     this.log("Found a light for: " + this.homekitLightName);
   
     var existingLightBulbService;
@@ -275,28 +276,31 @@ function BigAssFanAccessory(log, config, existingAccessory) {
   } else {
     this.log("No light exists for: " + this.homekitLightName);
   }
+  
+  if (this.type == 'fan') {
+    var existingFanService;
+    if (existingAccessory){
+      existingFanService = existingAccessory.getService(this.homekitFanName);
+    }
+    this.fanService = existingFanService || new Service.Fan(this.homekitFanName);
     
-  var existingFanService;
-  if (existingAccessory){
-    existingFanService = existingAccessory.getService(this.homekitFanName);
-  }
-  this.fanService = existingFanService || new Service.Fan(this.homekitFanName);
+    setCharacteristicOnService(this.fanService, Characteristic.On,
+                               "fan", "speed",
+                               boolGetWrapper, fanSetWrapper)
+    
+    setCharacteristicOnService(this.fanService, Characteristic.RotationDirection,
+                               "fan", "isSpinningForwards",
+                               fanRotationGetWrapper, fanRotationSetWrapper)
   
-  setCharacteristicOnService(this.fanService, Characteristic.On,
-                             "fan", "speed",
-                             boolGetWrapper, fanSetWrapper)
-  
-  setCharacteristicOnService(this.fanService, Characteristic.RotationDirection,
-                             "fan", "isSpinningForwards",
-                             fanRotationGetWrapper, fanRotationSetWrapper)
-
-  setCharacteristicOnService(this.fanService, Characteristic.RotationSpeed,
-                             "fan", "speed",
-                             getScalingWrapper(fanMaxSpeed), setScalingWrapper(fanMaxSpeed))
-  if (existingAccessory && !existingFanService){
-    existingAccessory.addService(this.fanService);
+    setCharacteristicOnService(this.fanService, Characteristic.RotationSpeed,
+                               "fan", "speed",
+                               getScalingWrapper(fanMaxSpeed), setScalingWrapper(fanMaxSpeed))
+    if (existingAccessory && !existingFanService){
+      existingAccessory.addService(this.fanService);
+    }
   }
 
+  // currently all Big Ass Devices have an occupancy sensor
   var existingOccupancyService;
   if (existingAccessory){
     existingOccupancyService = existingAccessory.getService(this.homekitOccupancyName);
